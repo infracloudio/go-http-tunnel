@@ -24,6 +24,11 @@ import (
 	"github.com/mmatczuk/go-http-tunnel/proto"
 )
 
+type ConnectionEventHandler interface {
+	OnConnect(host string, id string)
+	OnDisconnect(host string, id string)
+}
+
 // ServerConfig defines configuration for the Server.
 type ServerConfig struct {
 	// Addr is TCP address to listen for client connections. If empty ":0"
@@ -49,15 +54,16 @@ type Server struct {
 	*registry
 	config *ServerConfig
 
-	listener   net.Listener
-	connPool   *connPool
-	httpClient *http.Client
-	logger     log.Logger
-	vhostMuxer *vhost.TLSMuxer
+	listener     net.Listener
+	connPool     *connPool
+	httpClient   *http.Client
+	logger       log.Logger
+	vhostMuxer   *vhost.TLSMuxer
+	eventHandler ConnectionEventHandler
 }
 
 // NewServer creates a new Server.
-func NewServer(config *ServerConfig) (*Server, error) {
+func NewServer(config *ServerConfig, handler ConnectionEventHandler) (*Server, error) {
 	listener, err := listener(config)
 	if err != nil {
 		return nil, fmt.Errorf("listener failed: %s", err)
@@ -69,10 +75,11 @@ func NewServer(config *ServerConfig) (*Server, error) {
 	}
 
 	s := &Server{
-		registry: newRegistry(logger),
-		config:   config,
-		listener: listener,
-		logger:   logger,
+		registry:     newRegistry(logger),
+		config:       config,
+		listener:     listener,
+		logger:       logger,
+		eventHandler: handler,
 	}
 
 	t := &http2.Transport{}
@@ -161,6 +168,8 @@ func (s *Server) disconnected(identifier id.ID) {
 		"identifier", identifier,
 	)
 
+	host := s.registry.items[identifier].Hosts[0].Host
+
 	i := s.registry.clear(identifier)
 	if i == nil {
 		return
@@ -174,6 +183,8 @@ func (s *Server) disconnected(identifier id.ID) {
 		)
 		l.Close()
 	}
+
+	go s.eventHandler.OnDisconnect(host, identifier.String())
 }
 
 // Start starts accepting connections form clients. For accepting http traffic
@@ -369,6 +380,8 @@ func (s *Server) handleClient(conn net.Conn) {
 		"level", 1,
 		"action", "connected",
 	)
+
+	go s.eventHandler.OnConnect(s.registry.items[identifier].Hosts[0].Host, identifier.String())
 
 	return
 
