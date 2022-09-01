@@ -721,7 +721,7 @@ func (s *Server) proxyHTTP(identifier id.ID, r *http.Request, msg *proto.Control
 	)
 
 	pr, pw := io.Pipe()
-	defer pr.Close()
+	// defer pr.Close()
 	defer pw.Close()
 
 	req, err := s.connectRequest(identifier, msg, pr)
