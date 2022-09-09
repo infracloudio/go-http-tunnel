@@ -123,8 +123,9 @@ func (c *Client) Start() error {
 			return err
 		}
 
+		c.connMu.Lock()
 		c.conn = nil
-
+		c.connMu.Unlock()
 	}
 }
 
