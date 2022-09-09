@@ -99,7 +99,15 @@ func (c *Client) Start() error {
 	for {
 		conn, err := c.connect()
 		if err != nil {
-			return err
+			c.logger.Log(
+				"level", 1,
+				"action", "connect",
+				"msg", err.Error(),
+			)
+			if bErr := c.backoff(); bErr != nil {
+				return bErr
+			}
+			continue
 		}
 
 		c.httpServer.ServeConn(conn, &http2.ServeConnOpts{
@@ -111,24 +119,29 @@ func (c *Client) Start() error {
 			"action", "disconnected",
 		)
 
-		c.connMu.Lock()
-		now := time.Now()
-		err = c.serverErr
-
-		// detect disconnect hiccup
-		if err == nil && now.Sub(c.lastDisconnect).Seconds() < 5 {
-			err = fmt.Errorf("connection is being cut")
-		}
-
-		c.conn = nil
-		c.serverErr = nil
-		c.lastDisconnect = now
-		c.connMu.Unlock()
-
-		if err != nil {
+		if err = c.backoff(); err != nil {
 			return err
 		}
+
+		c.connMu.Lock()
+		c.conn = nil
+		c.connMu.Unlock()
 	}
+}
+
+func (c *Client) backoff() error {
+	d := c.config.Backoff.NextBackOff()
+	if d < 0 {
+		return fmt.Errorf("backoff time exceeded")
+	}
+
+	c.logger.Log(
+		"level", 1,
+		"action", "backoff",
+		"sleep", d,
+	)
+	time.Sleep(d)
+	return nil
 }
 
 func (c *Client) connect() (net.Conn, error) {
@@ -200,34 +213,8 @@ func (c *Client) dial() (net.Conn, error) {
 		return
 	}
 
-	b := c.config.Backoff
-	if b == nil {
-		return doDial()
-	}
+	return doDial()
 
-	for {
-		conn, err := doDial()
-
-		// success
-		if err == nil {
-			b.Reset()
-			return conn, err
-		}
-
-		// failure
-		d := b.NextBackOff()
-		if d < 0 {
-			return conn, fmt.Errorf("backoff limit exeded: %s", err)
-		}
-
-		// backoff
-		c.logger.Log(
-			"level", 1,
-			"action", "backoff",
-			"sleep", d,
-		)
-		time.Sleep(d)
-	}
 }
 
 func (c *Client) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +223,7 @@ func (c *Client) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			c.handleHandshakeError(w, r)
 		} else {
 			c.handleHandshake(w, r)
+			c.config.Backoff.Reset()
 		}
 		return
 	}
