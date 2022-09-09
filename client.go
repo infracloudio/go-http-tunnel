@@ -118,6 +118,12 @@ func (c *Client) Start() error {
 			return fmt.Errorf("backoff trying")
 		}
 
+		c.logger.Log(
+			"level", 1,
+			"action", "backoff",
+			"sleep", d,
+		)
+
 		time.Sleep(d)
 
 		// c.connMu.Lock()
@@ -129,7 +135,7 @@ func (c *Client) Start() error {
 		// 	err = fmt.Errorf("connection is being cut")
 		// }
 
-		// c.conn = nil
+		c.conn = nil
 		// c.serverErr = nil
 		// c.lastDisconnect = now
 		// c.connMu.Unlock()
