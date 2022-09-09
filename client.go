@@ -96,6 +96,8 @@ func (c *Client) Start() error {
 		"action", "start",
 	)
 
+	b := c.config.Backoff
+
 	for {
 		conn, err := c.connect()
 		if err != nil {
@@ -111,23 +113,30 @@ func (c *Client) Start() error {
 			"action", "disconnected",
 		)
 
-		c.connMu.Lock()
-		now := time.Now()
-		err = c.serverErr
-
-		// detect disconnect hiccup
-		if err == nil && now.Sub(c.lastDisconnect).Seconds() < 5 {
-			err = fmt.Errorf("connection is being cut")
+		d := b.NextBackOff()
+		if d < 0 {
+			return fmt.Errorf("backoff trying")
 		}
 
-		c.conn = nil
-		c.serverErr = nil
-		c.lastDisconnect = now
-		c.connMu.Unlock()
+		time.Sleep(d)
 
-		if err != nil {
-			return err
-		}
+		// c.connMu.Lock()
+		// now := time.Now()
+		// err = c.serverErr
+
+		// // detect disconnect hiccup
+		// if err == nil && now.Sub(c.lastDisconnect).Seconds() < 5 {
+		// 	err = fmt.Errorf("connection is being cut")
+		// }
+
+		// c.conn = nil
+		// c.serverErr = nil
+		// c.lastDisconnect = now
+		// c.connMu.Unlock()
+
+		// if err != nil {
+		// 	return err
+		// }
 	}
 }
 
@@ -200,34 +209,34 @@ func (c *Client) dial() (net.Conn, error) {
 		return
 	}
 
-	b := c.config.Backoff
-	if b == nil {
-		return doDial()
-	}
+	// b := c.config.Backoff
+	// if b == nil {
+	// 	return doDial()
+	// }
 
-	for {
-		conn, err := doDial()
+	// for {
+	conn, err := doDial()
 
-		// success
-		if err == nil {
-			b.Reset()
-			return conn, err
-		}
+	// success
+	// if err == nil {
+	// b.Reset()
+	return conn, err
+	// }
 
-		// failure
-		d := b.NextBackOff()
-		if d < 0 {
-			return conn, fmt.Errorf("backoff limit exeded: %s", err)
-		}
+	// failure
+	// d := b.NextBackOff()
+	// if d < 0 {
+	// 	return conn, fmt.Errorf("backoff limit exeded: %s", err)
+	// }
 
-		// backoff
-		c.logger.Log(
-			"level", 1,
-			"action", "backoff",
-			"sleep", d,
-		)
-		time.Sleep(d)
-	}
+	// backoff
+	// c.logger.Log(
+	// 	"level", 1,
+	// 	"action", "backoff",
+	// 	// "sleep", d,
+	// )
+	// time.Sleep(d)
+	// }
 }
 
 func (c *Client) serveHTTP(w http.ResponseWriter, r *http.Request) {
